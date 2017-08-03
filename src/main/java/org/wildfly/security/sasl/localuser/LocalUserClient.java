@@ -23,8 +23,12 @@ import static org.wildfly.security._private.ElytronMessages.log;
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Map;
 
 import javax.security.auth.callback.CallbackHandler;
@@ -90,7 +94,7 @@ public final class LocalUserClient extends AbstractSaslClient {
                 final byte[] challenge = new byte[8];
                 int t = 0;
                 try {
-                    final FileInputStream stream = new FileInputStream(file);
+                    final FileInputStream stream = createStream(file);
                     try {
                         while (t < 8) {
                             int r = stream.read(challenge, t, 8-t);
@@ -103,7 +107,7 @@ public final class LocalUserClient extends AbstractSaslClient {
                     } finally {
                         safeClose(stream);
                     }
-                } catch (IOException e) {
+                } catch (IOException | UncheckedIOException e) {
                     throw log.mechFailedToReadChallengeFile(getMechanismName(), e).toSaslException();
                 }
                 String authenticationId = getAuthorizationId();
@@ -132,5 +136,18 @@ public final class LocalUserClient extends AbstractSaslClient {
         if (c != null) try {
             c.close();
         } catch (Throwable ignored) {}
+    }
+
+    private static FileInputStream createStream(final File file) throws FileNotFoundException {
+        if (System.getSecurityManager() == null) {
+            return new FileInputStream(file);
+        }
+        return AccessController.doPrivileged((PrivilegedAction<FileInputStream>) () -> {
+            try {
+                return new FileInputStream(file);
+            } catch (FileNotFoundException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
     }
 }
